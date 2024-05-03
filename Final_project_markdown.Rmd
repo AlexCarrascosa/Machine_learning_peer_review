@@ -1,0 +1,133 @@
+---
+title: "Machine learning course project "
+author: "Alejandro Carrascosa"
+date: "2024-05-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, fig.align="center",out.height = "\\textheight",  out.width = "\\textwidth")
+```
+
+<br>
+<br>
+
+**Introduction**
+
+The aim of this work is to develop a model to help predict how people execute certain weightlifting exercises using their body performance monitoring devices. The data we have to build the model are the position of the sensors in an XYZ coordinate space, and their trajectory measured as Euler angles (roll, pitch and yaw). The authors of the original study also calculated some indices describing the distribution of the latter measures over time (skewness, kurtosis, mean...), using moving windows of 0.5 to 2.5 seconds.
+
+<br>
+<br>
+
+**Raw data preparation**
+
+Once I open the raw dataset, I notice some problems. The data provided to train and validate the model are full of NAs. Some of these NAs arise from the fact that the indices extracted with moving windows (skewness, variance, mean...) only have values in the last rows of each time window. One option to develop the model could be to use only the rows that have values for all the variables (those with "yes" values in the "new_window" column) but, as the dataset provided to test the model and make predictions does not have values for those columns either, I decided to simply remove those columns, and develop the model using only the characteristics of the positions and angles of the devices at each time.
+
+<br>
+
+```{r, include=FALSE}
+setwd("C:/Users/aleja/OneDrive - Universidad de Extremadura/Doctorado Plasencia/Course_machine_learning_predictio")
+```
+
+
+```{r datasets, message=FALSE, warning=FALSE, include=TRUE}
+
+#dataset for model developing
+data <- read.csv2("pml-training.csv", header = T, dec = ".", sep = ",")
+#dataset for predictions
+data_test <- read.csv2("pml-testing.csv", header = T, dec = ".", sep = ",")
+
+#The datasets do not have some missing values set as NA, so we transform them into NAs.
+
+data[data == '#DIV/0!'] <- NA
+data[data == ''] <- NA
+
+data_test[data_test == '#DIV/0!'] <- NA
+data_test[data_test == ''] <- NA
+
+#Now I remove the columns that have several NAs, those related with  distribution indices in moving windows. I also remove the first column, that is just the number of the row, but is highly correlated with some data
+
+data_clean <- data[c(2,8:11,37:49,113:124,140,151:159,160)]
+data_test_clean <- data_test[c(2,8:11,37:49,113:124,140,151:159,160)]
+
+```
+
+<br>
+
+**Model development**
+
+The factors in the data are mostly continuous, but there is also a very important categorical characteristic, the "user name". It is easy to imagine that, depending on the individual, the relationship between the positions and angles of the devices and the way the exercise is performed may vary. For this reason, I decided to use the random forest to build the predictive model, since the random forest can handle both continuous and categorical values and no assumptions about the distribution of the variables need to be met. I build the model using the "caret" package. To test the model I used the random sampling cross-validation approach, using 70% of the database to train the model and the remaining 30% to test it, before using it to predict the test data provided by the instructors.
+
+<br>
+
+```{r model, message=FALSE, warning=FALSE, include=TRUE}
+
+library(caret)
+
+#Spliting the data in train and test datasets
+data_train <- createDataPartition(data_clean$classe, p = 0.7, list = F)
+training <- data_clean[data_train,]
+testing <- data_clean[-data_train,]
+
+#Chaging the response variable "classe" from character to factor, for better functioning of random forest function. 
+set.seed(125)
+training$classe <- as.factor(training$classe)
+testing$classe <- as.factor(testing$classe)
+
+#Random forest model development
+model_rf <- train(classe ~., method = "rf", data = training)
+```
+
+<br>
+<br>
+
+This model "model_rf" was used to predict the values of the variable "classe" in the test data set. With the predicted values and the original test values, a confusion matrix is constructed to check the performance of the model.
+
+```{r matrix, message=FALSE, warning=FALSE, include=TRUE}
+
+predictions <- predict(model_rf, testing)
+
+confusionMatrix(predictions,testing$classe)
+
+```
+
+
+<br>
+
+**Results**
+
+The accuracy of this model is extremely high, more than 99% of the values are predicted correctly. Therefore, it can be concluded that the model is suitable for the proposals of this work. 
+
+Checking the importance of the variables in the model (Fig. 1) it can be seen that "roll belt" is the most important variable defining the way exercises are performed. On the other hand, the "user name" variables (which the model transforms into dummy variables) are not too important, which is actually good news, as the predictive model will depend less on the people wearing the devices and more on their movements, which makes the model more suitable for making predictions for any individual. 
+
+<br>
+```{r varimportance, message=FALSE, warning=FALSE, include=TRUE}
+plot(varImp(model_rf))
+```
+
+<br>
+Figure 1. Importance of the variables in the random forest model.
+
+<br>
+<br>
+
+**Predictions for the testing data provided by the instructors**
+
+We have been asked to predict "classe" values from a set of test data. The predicted values are presented before.
+
+<br>
+
+```{r testing, message=FALSE, warning=FALSE, include=TRUE}
+library(flextable)
+library(dplyr)
+
+testing_predictions <- predict(model_rf, data_test_clean)
+
+table_data <- data.frame(predicted_classe = testing_predictions, problem_id = data_test$problem_id)
+
+text.t <- flextable(table_data, col_keys = c("predicted_classe", "problem_id")) %>%
+    align(align = "center", part = "all") %>% 
+    set_table_properties(layout = "autofit", width = 1)
+
+text.t
+```
